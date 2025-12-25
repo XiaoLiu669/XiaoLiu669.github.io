@@ -1,1 +1,328 @@
-<h1>cesces</h1>
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLB 批量工具 (指定导出文件夹)</title>
+    <style>
+        /* --- 基础布局 --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 50px;
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            width: 600px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        /* --- 上传区域 --- */
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.3s;
+            background: #fafafa;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #007bff;
+            background: #eef7ff;
+        }
+
+        /* --- 按钮 --- */
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+            opacity: 0.6;
+            transition: 0.3s;
+            width: 100%;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #6c757d;
+        }
+
+        .btn:enabled {
+            opacity: 1;
+            background: #28a745;
+        }
+
+        .btn:enabled:hover {
+            background: #218838;
+        }
+
+        /* --- 其他UI --- */
+        #status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #666;
+            white-space: pre-wrap;
+        }
+
+        .file-list {
+            text-align: left;
+            max-height: 120px;
+            overflow-y: auto;
+            background: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #555;
+            display: none;
+        }
+
+        .options {
+            text-align: left;
+            margin-top: 10px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #eee;
+        }
+
+        .options label {
+            display: block;
+            margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>📂 GLB 批量工具 (指定导出位置)</h1>
+
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <p>📁 点击此处选择多个文件</p>
+            <input type="file" id="fileInput" style="display: none;" multiple accept=".glb">
+        </div>
+
+        <div class="options">
+            <label><input type="checkbox" id="fixY" checked><b>垂直修正 (Fix Y):</b> 模型底部归零</label>
+            <label><input type="checkbox" id="fixXZ" checked><b>水平修正 (Fix X/Z):</b> 模型中心对齐</label>
+        </div>
+
+        <div id="fileListDisplay" class="file-list"></div>
+        <div id="status">等待选择文件...</div>
+
+        <!-- 注意按钮文字的变化 -->
+        <button id="processBtn" class="btn" disabled onclick="processAllFiles()">💾 选择保存文件夹并开始</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+        const fileInput = document.getElementById('fileInput');
+        const statusDiv = document.getElementById('status');
+        const processBtn = document.getElementById('processBtn');
+        const fileListDisplay = document.getElementById('fileListDisplay');
+
+        let selectedFiles = [];
+
+        // 1. 文件选择监听
+        fileInput.addEventListener('change', (e) => {
+            const rawFiles = Array.from(e.target.files);
+            selectedFiles = rawFiles.filter(f => f.name.toLowerCase().endsWith('.glb'));
+
+            if (selectedFiles.length === 0) {
+                statusDiv.innerText = "❌ 未检测到 .glb 文件";
+                statusDiv.style.color = "red";
+                processBtn.disabled = true;
+                fileListDisplay.style.display = 'none';
+                return;
+            }
+
+            statusDiv.innerText = `✅ 已就绪！共 ${selectedFiles.length} 个文件`;
+            statusDiv.style.color = "green";
+            processBtn.disabled = false;
+            fileListDisplay.style.display = 'block';
+            fileListDisplay.innerText = selectedFiles.map(f => f.name).join('\n');
+        });
+
+        window.processAllFiles = async function () {
+            // Check browser support
+            if (!window.showDirectoryPicker) {
+                alert("当前浏览器不支持文件夹直接写入，请使用 Chrome 或 Edge。");
+                return;
+            }
+
+            let dirHandle;
+            try {
+                dirHandle = await window.showDirectoryPicker({
+                    mode: 'readwrite',
+                    startIn: 'downloads'
+                });
+            } catch (err) {
+                statusDiv.innerText = "🚫 用户取消了文件夹选择";
+                return;
+            }
+
+            // ================= 修改开始：添加防刷新保护 =================
+            // 告诉浏览器：如果有人（包括Live Server）想刷新页面，先弹窗询问
+            const preventRefresh = (e) => {
+                e.preventDefault();
+                e.returnValue = ''; // Chrome 需要设置这个
+            };
+            window.addEventListener('beforeunload', preventRefresh);
+            // ================= 修改结束 =================
+
+            processBtn.disabled = true;
+            processBtn.innerText = "⏳ 正在写入文件夹...";
+
+            const config = {
+                fixY: document.getElementById('fixY').checked,
+                fixXZ: document.getElementById('fixXZ').checked
+            };
+
+            let successCount = 0;
+            const total = selectedFiles.length;
+
+            try { // 添加一个大的 try-finally 确保最后能解除保护
+                for (let i = 0; i < total; i++) {
+                    const file = selectedFiles[i];
+                    statusDiv.innerText = `⚙️ 正在处理 (${i + 1}/${total}): ${file.name}`;
+
+                    let fileUrl = null;
+                    try {
+                        fileUrl = URL.createObjectURL(file);
+                        const gltf = await loadGlbFile(fileUrl);
+                        fixModelGeometry(gltf.scene, config);
+
+                        await saveToFolder(dirHandle, gltf.scene, file.name);
+
+                        successCount++;
+                        // 暂停一会，防止写入过快
+                        // await new Promise(resolve => setTimeout(resolve, 500));
+
+                    } catch (err) {
+                        console.error(`处理 ${file.name} 失败:`, err);
+                        statusDiv.innerText += `\n❌ ${file.name} 失败: ${err.message}`;
+                    } finally {
+                        if (fileUrl) URL.revokeObjectURL(fileUrl);
+                    }
+                }
+
+                statusDiv.innerText = `🎉 全部完成！已将 ${successCount} 个文件保存到选定文件夹。`;
+                statusDiv.style.color = "#333";
+
+            } finally {
+                // ================= 修改开始：解除保护 =================
+                // 运行完后，允许页面正常刷新或关闭
+                window.removeEventListener('beforeunload', preventRefresh);
+                processBtn.innerText = "💾 选择保存文件夹并开始";
+                processBtn.disabled = false;
+                // ================= 修改结束 =================
+            }
+        };
+
+        // --- 辅助：加载 GLB (修改版：移除内部 URL 释放) ---
+        function loadGlbFile(url) {
+            return new Promise((resolve, reject) => {
+                const loader = new GLTFLoader();
+                loader.load(
+                    url,
+                    (gltf) => {
+                        resolve(gltf);
+                    },
+                    undefined,
+                    (err) => reject(err)
+                );
+            });
+        }
+
+        // --- 辅助：几何修正 ---
+        function fixModelGeometry(scene, config) {
+            const box = new THREE.Box3().setFromObject(scene);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+
+            const offsetX = config.fixXZ ? -center.x : 0;
+            const offsetY = config.fixY ? -box.min.y : 0;
+            const offsetZ = config.fixXZ ? -center.z : 0;
+
+            if (offsetX === 0 && offsetY === 0 && offsetZ === 0) return;
+
+            scene.traverse((node) => {
+                if (node.isMesh) node.geometry.translate(offsetX, offsetY, offsetZ);
+            });
+
+            scene.position.set(0, 0, 0);
+            scene.rotation.set(0, 0, 0);
+            scene.scale.set(1, 1, 1);
+            scene.updateMatrixWorld(true);
+        }
+
+        // --- 核心修改：保存到文件夹 ---
+        async function saveToFolder(dirHandle, scene, filename) {
+            return new Promise((resolve, reject) => {
+                const exporter = new GLTFExporter();
+                exporter.parse(
+                    scene,
+                    async function (result) {
+                        try {
+                            // 1. 获取文件句柄 (如果存在则覆盖，不存在则创建)
+                            const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+                            // 2. 创建可写流
+                            const writable = await fileHandle.createWritable();
+                            // 3. 写入二进制数据
+                            await writable.write(new Blob([result], { type: 'application/octet-stream' }));
+                            // 4. 关闭流
+                            await writable.close();
+                            resolve();
+                        } catch (err) {
+                            reject(err);
+                        }
+                    },
+                    function (error) { reject(error); },
+                    { binary: true }
+                );
+            });
+        }
+    </script>
+</body>
+
+</html>
